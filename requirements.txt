@@ -1,0 +1,16 @@
+pydantic==1.10.12
+python-dotenv==1.0.0
+python-docx==0.8.11
+pypdf==3.16.2
+colorama==0.4.6
+tiktoken
+openpyxl==3.1.2
+streamlit==1.33.0
+PyYAML
+pandas==2.2.2
+matplotlib==3.9.0
+numpy
+xlsxwriter
+streamlit-authenticator
+tqdm
+scikit-learn
