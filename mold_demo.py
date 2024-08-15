@@ -13,12 +13,14 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 
 import warnings
+
 warnings.filterwarnings('ignore')
 
 # LOGIN
 import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
+
 
 def generate_outliers(df, y_col_name, yhat_col_name, outlier_threshold):
     df = df.copy()
@@ -65,7 +67,7 @@ def model_eval(df_comparison, outlier_threshold, y_col_name, yhat_col_name):
     return global_r2, global_mape, r2, mae, mape
 
 
-def process_data(df, model_cols, if_train=True):
+def process_data(df, model_cols, if_train=True, if_pred_model=True):
     df = df[~df['品名'].isin(['Deco', 'MIDDLE_FRAME', 'Middle frame'])]
 
     series_dict = {
@@ -135,6 +137,48 @@ def process_data(df, model_cols, if_train=True):
     df = df.join(expanded_df).join(expanded_df2).join(expanded_df3)
     df = df.drop(['公仁材料系列', '母仁材料系列', '公仁材料', '母仁材料', '咬花規格', '咬花規格系列', '品名'], axis=1)
 
+    if not if_pred_model:
+        # fix the missing vs 0
+        df['结构-滑块数量'] = np.where(df['热胶道区分项'].isin(['针阀式倒灌', '倒灌', '倒灌式倒灌']),
+                                 df['结构-滑块数量'].replace({'-': 0}), np.nan)
+
+        df['结构-后壳PL面弧形'] = np.where(df['热胶道区分项'].isin(['针阀式倒灌', '倒灌', '倒灌式倒灌']),
+                                    df['结构-后壳PL面弧形'].replace({'-': 0}), np.nan)
+
+        df['结构-斜销'] = np.where(df['热胶道区分项'].isin(['针阀式倒灌', '倒灌', '倒灌式倒灌']),
+                               df['结构-斜销'].replace({'-': 0}), np.nan)
+
+        df = df.drop('热胶道区分项', axis=1)
+        df['quarter'] = df['year_month'].astype(str).str[-2:].astype(int) // 4 + 1
+
+        new_cols = [
+            '结构-滑块数量',
+            '结构-后壳PL面弧形',
+            '结构-斜销',
+            '外观-特殊咬花',
+            '外观-电镀/镭射/激光',
+            # '外观-亮面',	too Sparse
+            '外观-高亮',
+            '试模费',
+            '售后维修费',
+            # '母仁材料',
+            '母仁长',
+            '母仁宽',
+            '母仁高',
+            '母仁预计重量(kg)',
+            # '公仁材料',
+            '公仁长',
+            '公仁宽',
+            '公仁高',
+            '公仁预计重量(kg)',
+        ]
+
+        # replace the - with null
+        df[new_cols] = df[new_cols].replace({'-': np.nan})
+        df['外观-特殊咬花'] = np.where(df['外观-特殊咬花'].notnull() & (df['外观-特殊咬花'] != 0), 1, 0)
+        df['外观-电镀/镭射/激光'] = np.where(
+            df['外观-电镀/镭射/激光'].notnull() & (df['外观-电镀/镭射/激光'] != 0), 1, 0)
+
     to_infer_cols = [i for i in model_cols if (i not in df.columns) and (i != target)]
     df[to_infer_cols] = 0
 
@@ -145,6 +189,7 @@ def process_data(df, model_cols, if_train=True):
 
     df = df.replace('-', np.nan)
     return df
+
 
 def get_model_preds(model_type, train_X, train_y, test_X, model_params=dict()):
     if model_type == "linear_regression_default":
@@ -238,7 +283,6 @@ authenticator = stauth.Authenticate(
     config['preauthorized']
 )
 
-
 name, authentication_status, username = authenticator.login('main')
 
 if authentication_status:
@@ -256,46 +300,221 @@ if authentication_status:
         test_data = pd.read_excel(test_file, sheet_name='Sheet1')
         st.dataframe(test_data)
 
+    option = st.sidebar.selectbox(
+        "模型选择",
+        ["预测模型", "复盘模型"]
+    )
+
+    if option == "预测模型":
+        useful_cols = [
+            'material_ID',
+            '品名',
+            '寸别',
+            '取模時間',
+            '成形時間',
+            '咬花規格',
+            '成品体積',
+            '成品重量',
+            '建議熱膠道數量',
+            '成品尺寸-L',
+            '成品尺寸-W',
+            '成品尺寸-H',
+            # '成品尺寸-T',
+            '成品外觀_咬花',
+            '特殊咬花',
+            '模具形式_倒灌模',
+            # '摊提数量',
+            '母仁材料',
+            '公仁材料',
+            '客户类型_OBM',
+            '客户类型_客指客供',
+            '客户类型_普通客户'
+
+        ]
+
+        model_cols = [
+            'material_ID',
+            '寸别',
+            '取模時間',
+            '成形時間',
+            '成品体積',
+            '成品重量',
+            '建議熱膠道數量',
+            '成品尺寸-L',
+            '成品尺寸-W',
+            '成品尺寸-H',
+            # '成品尺寸-T',
+            '成品外觀_咬花',
+            '特殊咬花',
+            '模具形式_倒灌模',
+            # '摊提数量',
+            '公仁材料系列_718H',
+            '公仁材料系列_LKM738',
+            '公仁材料系列_P20',
+            '公仁材料系列_NAK80',
+            '公仁材料系列_非常见原料',
+            '母仁材料系列_LKM738',
+            '母仁材料系列_718H',
+            '母仁材料系列_NAK80',
+            '母仁材料系列_非常见原料',
+            '母仁材料系列_P20',
+            '咬花規格系列_mt11015',
+            # '咬花規格系列_其他',
+            '咬花規格系列_mt11020',
+            '咬花規格系列_mt11000',
+            '咬花規格系列_mt11010',
+            '客户类型_OBM',
+            '客户类型_客指客供',
+            '客户类型_普通客户'
+        ]
+
+        id_col = ['material_ID']
+        if_pred_model = True
+    else:
+        useful_cols = [
+            'mold_order_number',
+            'material_ID',
+            '品名',
+            # 'mold_cost_usd',
+            '寸别',
+            '機種',
+            '取模時間',
+            '咬花規格',
+            '成品体積',
+            '成形時間',
+            '成品重量',
+            '穴數',
+            '建議熱膠道數量',
+            '成品尺寸-L',
+            '成品尺寸-W',
+            '成品尺寸-H',
+            '成品尺寸-T',
+            '成品外觀_噴塗',
+            '成品外觀_咬花',
+            '模具形式_倒灌模',
+            '模具形式_正灌模',
+            '成品外觀_高亮',
+            '氣輔成型_內氣輔',
+            '摊提数量',
+            'year_month',
+            '开模厂_三捷',
+            '开模厂_冠华',
+            '开模厂_冠成',
+            '开模厂_冠捷塑胶',
+            '开模厂_品冠',
+            '开模厂_宏利发',
+            '开模厂_扬帆',
+            '开模厂_永辉',
+            '开模厂_瑞成',
+            '开模厂_良泉',
+            '开模厂_进宏',
+            '开模厂_苏飞亚',
+            '客户类型_OBM',
+            '客户类型_客指客供',
+            '客户类型_普通客户',
+            '热胶道区分项',
+            '结构-滑块大小',
+            '结构-滑块数量',
+            '结构-斜销',
+            '结构-后壳PL面弧形',
+            '外观-普通咬花',
+            '外观-特殊咬花',
+            '外观-电镀/镭射/激光',
+            '外观-亮面',
+            '外观-涂装',
+            '外观-高亮',
+            '试模费',
+            '售后维修费',
+            '母仁材料',
+            '母仁长',
+            '母仁宽',
+            '母仁高',
+            '母仁预计重量(kg)',
+            '公仁材料',
+            '公仁长',
+            '公仁宽',
+            '公仁高',
+            '公仁预计重量(kg)'
+        ]
+        model_cols = [
+            'mold_order_number',
+            'material_ID',
+            '品名',
+            '機種',
+            '取模時間',
+            '寸别',
+            '成品体積',
+            # '成形時間',
+            '成品重量',
+            '建議熱膠道數量',
+            '成品尺寸-L',
+            '成品尺寸-W',
+            '成品尺寸-H',
+            '成品尺寸-T',
+            '成品外觀_咬花',
+            '模具形式_倒灌模',
+            '摊提数量',
+            # 'mold_cost_usd',
+            'quarter',
+            '开模厂_三捷',
+            '开模厂_冠华',
+            '开模厂_冠成',
+            '开模厂_冠捷塑胶',
+            '开模厂_品冠',
+            '开模厂_宏利发',
+            '开模厂_扬帆',
+            '开模厂_永辉',
+            '开模厂_瑞成',
+            '开模厂_良泉',
+            '开模厂_进宏',
+            '开模厂_苏飞亚',
+            '客户类型_OBM',
+            '客户类型_客指客供',
+            '客户类型_普通客户',
+            '母仁材料系列_LKM738',
+            '母仁材料系列_718H',
+            '母仁材料系列_NAK80',
+            '母仁材料系列_非常见原料',
+            '母仁材料系列_P20',
+            '公仁材料系列_718H',
+            '公仁材料系列_LKM738',
+            '公仁材料系列_P20',
+            '公仁材料系列_NAK80',
+            '公仁材料系列_非常见原料',
+            '咬花規格系列_mt11015',
+            '咬花規格系列_其他',
+            '咬花規格系列_mt11020',
+            '咬花規格系列_mt11010',
+            '咬花規格系列_mt11000',
+            '结构-滑块数量',
+            '结构-后壳PL面弧形',
+            '结构-斜销',
+            '外观-特殊咬花',
+            '外观-电镀/镭射/激光',
+            '外观-高亮',
+            '试模费',
+            '售后维修费',
+            '母仁长',
+            '母仁宽',
+            '母仁高',
+            '母仁预计重量(kg)',
+            '公仁长',
+            '公仁宽',
+            '公仁高',
+            '公仁预计重量(kg)'
+        ]
+        id_col = ['mold_order_number', 'material_ID', '品名', '機種']
+        if_pred_model = False
+
     # Run button
     if st.button("训练模型，建议价格"):
         if train_file is not None and test_file is not None:
-            useful_cols = [
-                'material_ID', '品名', '寸别', '取模時間', '成形時間', '咬花規格',
-                '成品体積', '成品重量', '建議熱膠道數量', '成品尺寸-L', '成品尺寸-W',
-                '成品尺寸-H',
-                # '成品尺寸-T',
-                '成品外觀_咬花', '模具形式_倒灌模',
-                # '摊提数量',
-                '母仁材料', '公仁材料',
-                '客户类型_OBM',
-                '客户类型_客指客供',
-                '客户类型_普通客户'
-
-            ]
-
-            model_cols = [
-                'material_ID', '寸别', '取模時間', '成形時間', '成品体積', '成品重量',
-                '建議熱膠道數量', '成品尺寸-L', '成品尺寸-W', '成品尺寸-H',
-                # '成品尺寸-T',
-                '成品外觀_咬花', '模具形式_倒灌模',
-                # '摊提数量',
-                '公仁材料系列_718H', '公仁材料系列_LKM738', '公仁材料系列_P20',
-                '公仁材料系列_NAK80', '公仁材料系列_非常见原料', '母仁材料系列_LKM738',
-                '母仁材料系列_718H', '母仁材料系列_NAK80', '母仁材料系列_非常见原料',
-                '母仁材料系列_P20', '咬花規格系列_mt11015', '咬花規格系列_其他',
-                '咬花規格系列_mt11020', '咬花規格系列_mt11000', '咬花規格系列_mt11010',
-                '客户类型_OBM',
-                '客户类型_客指客供',
-                '客户类型_普通客户'
-            ]
-
             target = 'mold_cost_usd'
-            id_col = 'material_ID'
             model_params = {}
             outlier_threshold = 0.3
 
-            train_data_proc = process_data(train_data[useful_cols + [target]], model_cols)
-            test_data_proc = process_data(test_data[useful_cols], model_cols, False)
+            train_data_proc = process_data(train_data[useful_cols + [target]], model_cols, if_pred_model=if_pred_model)
+            test_data_proc = process_data(test_data[useful_cols], model_cols, False, if_pred_model=if_pred_model)
 
             # Progress bar
             with st.expander("训练模型...", expanded=True):
@@ -309,10 +528,11 @@ if authentication_status:
                     model.fit(train_data_proc[model_cols].drop(id_col, axis=1), train_data_proc[target])
 
             with st.expander("验证模型...", expanded=True):
-                df_with_preds, models_and_x_test = get_predictions(train_data_proc, [id_col], target, 'random_forest',
+                df_with_preds, models_and_x_test = get_predictions(train_data_proc, id_col, target, 'random_forest',
                                                                    is_use_cv=True, model_params=model_params)
                 df_with_preds = generate_outliers(df_with_preds, "mold_cost_usd", "preds", outlier_threshold)
-                global_r2, global_mape, r2, mae, mape = model_eval(df_with_preds, outlier_threshold, "mold_cost_usd", "preds")
+                global_r2, global_mape, r2, mae, mape = model_eval(df_with_preds, outlier_threshold, "mold_cost_usd",
+                                                                   "preds")
 
                 st.write(f"全局R2: {global_r2:.2f}")
                 st.write(f"全局MAPE: {global_mape:.1%}")
